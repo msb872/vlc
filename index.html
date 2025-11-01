@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="fa" dir="ltr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link rel="icon" type="image/png" href="vlc.png">
+<title>پلیر با ویرایشگر زیرنویس</title>
+<style>
+  :root{--bg:#07142a;--card:#fff;--muted:#6b7780;--accent:#06b6d4;--accent-red:#ef4444;--track:#f5f7fa}
+  html,body{height:100%;margin:0;font-family:system-ui,Roboto,Segoe UI;background:var(--bg);color:#eaf6fb;display:flex;align-items:flex-start;justify-content:center;padding:18px}
+  .wrap{width:100%;max-width:1200px;background:var(--card);color:#08121a;border-radius:12px;padding:14px;box-shadow:0 10px 40px rgba(2,6,23,0.6)}
+  h1{margin:0;font-size:16px}
+  .top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  #drop{margin-top:12px;border:2px dashed #e6eef6;padding:10px;border-radius:8px;background:#fbfdff;cursor:pointer;text-align:center;color:#03202a}
+  .layout{display:grid;grid-template-columns:1fr 420px;gap:14px;margin-top:12px}
+  .left{min-width:320px}
+  .right{width:420px}
+  .list-header{display:flex;align-items:center;justify-content:space-between;padding:8px;border-radius:8px;background:var(--track)}
+  .file-list{margin-top:8px;max-height:220px;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:6px}
+  .file-item{display:flex;gap:12px;align-items:center;padding:10px;border-radius:10px;background:#fff;cursor:pointer}
+  .file-item.active{outline:2px solid rgba(6,182,212,0.12)}
+  .thumb{width:84px;height:56px;border-radius:8px;background:#dfe6ea;display:grid;place-items:center;overflow:hidden}
+  .meta{flex:1;min-width:0}
+  .title{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sub{font-size:12px;color:var(--muted)}
+  .player-area{background:#0b1220;border-radius:8px;padding:8px;position:relative;min-height:240px;display:flex;flex-direction:column;gap:8px}
+  video,audio,img{width:100%;border-radius:6px;background:#000}
+  .progress-wrap{display:flex;flex-direction:column;gap:6px}
+  input[type=range]{-webkit-appearance:none;appearance:none;height:12px;border-radius:999px;background:#ffffff;outline:none;width:100%}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#fff;border:3px solid rgba(11,18,32,0.12);margin-top:-2px}
+  .subtitle-overlay{position:absolute;left:8px;right:8px;bottom:18px;text-align:center;pointer-events:none;font-size:16px;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,0.8);padding:6px 12px;box-sizing:border-box;display:none;white-space:pre-wrap}
+  .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .muted{color:var(--muted)}
+  .subs-editor{background:#fbfdff;padding:10px;border-radius:8px;border:1px solid rgba(0,0,0,0.04);margin-top:12px}
+  .subs-editor textarea{width:100%;height:88px;border-radius:6px;padding:8px;border:1px solid #d9e6ea;resize:vertical;font-family:inherit}
+  .cue-list{max-height:200px;overflow:auto;margin-top:8px;display:flex;flex-direction:column;gap:6px}
+  .cue{display:flex;align-items:flex-start;gap:8px;padding:8px;border-radius:8px;background:#fff;border:1px solid rgba(0,0,0,0.04)}
+  .cue .meta{flex:1}
+  .small{padding:6px;border-radius:8px;border:0;background:var(--accent);color:#042026;cursor:pointer}
+  .ghost{background:transparent;border:1px solid rgba(0,0,0,0.06)}
+  .danger{background:var(--accent-red);color:#fff}
+  @media (max-width:980px){ .layout{grid-template-columns:1fr} .right{width:100%} }
+</style>
+</head>
+<body>
+  <div class="wrap" role="application" aria-label="پلیر با ویرایشگر زیرنویس">
+    <div class="top"><h1>پلیر + Subtitle Editor</h1><div class="muted">اضافه کردن زیرنویس زنده و صادرات VTT</div></div>
+
+    <div id="drop">فایل‌ها را اینجا بکش یا کلیک کن (صوت/ویدئو/تصویر)</div>
+    <input id="fileInput" type="file" accept="audio/*,video/*,image/*" multiple style="display:none">
+
+    <div class="layout">
+      <div class="left">
+        <div class="list-header"><div class="muted">لیست فایل‌ها</div><div id="listInfo" class="muted">0 آیتم</div></div>
+        <div id="fileList" class="file-list" aria-live="polite"></div>
+
+        <div class="subs-editor" id="subsEditor">
+          <div style="display:flex;gap:8px;align-items:center;justify-content:space-between">
+            <div style="font-weight:700">ویرایشگر زیرنویس</div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button id="addCueNow" class="small">افزودن از زمان فعلی</button>
+              <button id="exportVTT" class="small ghost">صادرات VTT</button>
+            </div>
+          </div>
+
+          <label style="display:block;margin-top:8px">متن cue</label>
+          <textarea id="cueText" placeholder="متن زیرنویس را اینجا بنویس"></textarea>
+
+          <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+            <label>شروع</label><input id="cueStart" type="text" placeholder="mm:ss یا hh:mm:ss" style="width:120px;padding:6px;border-radius:6px;border:1px solid #d9e6ea">
+            <label>پایان</label><input id="cueEnd" type="text" placeholder="mm:ss یا hh:mm:ss" style="width:120px;padding:6px;border-radius:6px;border:1px solid #d9e6ea">
+            <button id="addCueManual" class="small">افزودن</button>
+          </div>
+
+          <div class="cue-list" id="cueList"></div>
+        </div>
+      </div>
+
+      <div class="right">
+        <div class="player-area" id="playerArea">
+          <div id="playerPlaceholder" class="muted">هیچ فایلی انتخاب نشده</div>
+          <div id="progressWrap" class="progress-wrap" style="display:none">
+            <input id="seek" type="range" min="0" max="100" value="0" aria-label="نوار پیشرفت">
+            <div style="display:flex;justify-content:space-between;color:var(--muted);font-size:13px"><div id="curTime">0:00</div><div id="totalTime">0:00</div></div>
+          </div>
+          <div id="subtitleOverlay" class="subtitle-overlay" aria-live="polite"></div>
+        </div>
+
+        <div class="controls" style="margin-top:8px">
+          <button id="play" class="small">▶ Play</button>
+          <button id="pause" class="small ghost">⏸ Pause</button>
+          <button id="stop" class="small ghost">⏹ Stop</button>
+          <button id="skipBack" class="small ghost">-10s</button>
+          <button id="skipForward" class="small ghost">+10s</button>
+          <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+            <label id="uploadSubLabel" class="small ghost" style="cursor:pointer">بارگذاری زیرنویس فایل</label>
+            <input id="subFileInput" type="file" accept=".vtt,.srt,.ass,text/vtt,text/plain" style="display:none">
+          </div>
+        </div>
+
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+          <div class="muted">Volume</div>
+          <input id="volume" type="range" min="0" max="100" value="95">
+          <div id="volText" class="muted">95%</div>
+        </div>
+
+        <div style="margin-top:10px;display:flex;gap:8px;justify-content:space-between">
+          <button id="clearAll" class="small ghost">پاک کردن همه</button>
+          <div id="playerStatus" class="muted">وضعیت پخش: آماده</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* ====== عناصر DOM ====== */
+const drop = document.getElementById('drop');
+const fileInput = document.getElementById('fileInput');
+const fileList = document.getElementById('fileList');
+const listInfo = document.getElementById('listInfo');
+const playerArea = document.getElementById('playerArea');
+const playerPlaceholder = document.getElementById('playerPlaceholder');
+const progressWrap = document.getElementById('progressWrap');
+const seek = document.getElementById('seek');
+const curTime = document.getElementById('curTime');
+const totalTime = document.getElementById('totalTime');
+const subtitleOverlay = document.getElementById('subtitleOverlay');
+const playBtn = document.getElementById('play');
+const pauseBtn = document.getElementById('pause');
+const stopBtn = document.getElementById('stop');
+const skipBackBtn = document.getElementById('skipBack');
+const skipForwardBtn = document.getElementById('skipForward');
+const toggleSubsBtn = document.getElementById('toggleSubs');
+const uploadSubLabel = document.getElementById('uploadSubLabel');
+const subFileInput = document.getElementById('subFileInput');
+const volume = document.getElementById('volume');
+const volText = document.getElementById('volText');
+const clearAllBtn = document.getElementById('clearAll');
+const playerStatus = document.getElementById('playerStatus');
+
+const cueText = document.getElementById('cueText');
+const cueStart = document.getElementById('cueStart');
+const cueEnd = document.getElementById('cueEnd');
+const addCueNow = document.getElementById('addCueNow');
+const addCueManual = document.getElementById('addCueManual');
+const cueList = document.getElementById('cueList');
+const exportVTT = document.getElementById('exportVTT');
+
+/* ====== حالت ====== */
+let items = []; // {id,name,url,type,duration,thumb,subtitleBlobURL,subtitleMode,textTrack,cues: [{id, start, end, text}]}
+let current = -1;
+let mediaEl = null;
+const POS_KEY = 'player_positions_v1';
+const CUES_KEY = 'player_cues_v1'; // stores map {itemId: [cues]}
+
+/* ====== کمک‌ها ====== */
+const fmt = s => { if (!isFinite(s)) return '0:00'; const m=Math.floor(s/60); const sec=Math.floor(s%60).toString().padStart(2,'0'); return `${m}:${sec}`; };
+const parseTimeInput = str => {
+  if(!str) return NaN;
+  const parts = str.trim().split(':').map(x=>Number(x));
+  if(parts.length===1) return Number(parts[0]);
+  if(parts.length===2) return parts[0]*60 + parts[1];
+  if(parts.length===3) return parts[0]*3600 + parts[1]*60 + parts[2];
+  return NaN;
+};
+const secondsToVttTimestamp = s => {
+  if(!isFinite(s)) return '00:00:00.000';
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = Math.floor(s%60), ms = Math.floor((s - Math.floor(s))*1000);
+  return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0')+'.'+String(ms).padStart(3,'0');
+};
+const loadPositions = ()=> { try { return JSON.parse(localStorage.getItem(POS_KEY) || '{}'); } catch(e){ return {}; } };
+const savePositions = obj => { try { localStorage.setItem(POS_KEY, JSON.stringify(obj)); } catch(e){} };
+const loadCuesStore = ()=> { try { return JSON.parse(localStorage.getItem(CUES_KEY) || '{}'); } catch(e){ return {}; } };
+const saveCuesStore = obj => { try { localStorage.setItem(CUES_KEY, JSON.stringify(obj)); } catch(e){} };
+function updateRangeBackground(el, value, color){ const pct = Math.max(0, Math.min(100, Number(value))); el.style.background = `linear-gradient(90deg, ${color} 0%, ${color} ${pct}%, #ffffff ${pct}%, #ffffff 100%)`; }
+
+/* ====== فایل‌ها ====== */
+drop.addEventListener('click', ()=> fileInput.click());
+fileInput.addEventListener('change', e => handleFiles(e.target.files));
+['dragenter','dragover'].forEach(ev => drop.addEventListener(ev, e=>{ e.preventDefault(); drop.style.borderColor='#06b6d4'; }));
+['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e=>{ e.preventDefault(); drop.style.borderColor=''; }));
+drop.addEventListener('drop', e=> { e.preventDefault(); if(e.dataTransfer && e.dataTransfer.files) handleFiles(e.dataTransfer.files); });
+
+function handleFiles(list){
+  const arr = Array.from(list || []);
+  arr.forEach(file=>{
+    const type = file.type || '';
+    const url = URL.createObjectURL(file);
+    const id = Math.random().toString(36).slice(2,9);
+    const kind = type.startsWith('audio/') ? 'audio' : (type.startsWith('video/') ? 'video' : (type.startsWith('image/') ? 'image' : 'file'));
+    const item = {id, name:file.name, url, type:kind, duration:NaN, thumb:null, subtitleBlobURL:null, subtitleMode:'off', textTrack:null, cues: []};
+    // restore saved cues if any
+    const saved = loadCuesStore();
+    if(saved[item.id]) item.cues = saved[item.id];
+    items.push(item);
+    if(kind === 'video'){
+      const v = document.createElement('video'); v.preload='metadata'; v.muted=true; v.src = url;
+      v.addEventListener('loadeddata', ()=> {
+        try {
+          const c=document.createElement('canvas');
+          c.width=Math.min(160,v.videoWidth||160); c.height=Math.min(90,v.videoHeight||90);
+          c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+          item.thumb = c.toDataURL('image/png');
+        }catch(e){}
+        renderList(); v.pause();
+      }, {once:true});
+    } else if(kind === 'image'){
+      const img = new Image(); img.onload = ()=> { item.thumb = url; renderList(); }; img.src = url;
+    }
+    renderList();
+  });
+  if(current===-1){
+    const idx = items.findIndex(i=>i.type==='audio' || i.type==='video');
+    if(idx !== -1) setCurrent(idx);
+  }
+}
+
+/* ====== لیست فایل‌ها ====== */
+function renderList(){
+  fileList.innerHTML = '';
+  listInfo.textContent = items.length + ' آیتم';
+  items.forEach((it, idx)=>{
+    const el = document.createElement('div'); el.className = 'file-item'; el.dataset.id = it.id;
+    if(idx === current) el.classList.add('active');
+    el.innerHTML = `<div class="thumb">${ it.thumb ? `<img src="${it.thumb}">` : (it.type==='audio'?'♪':(it.type==='video'?'🎞':'🖼')) }</div>
+      <div class="meta"><div class="title">${escapeHtml(it.name)}</div><div class="sub">${it.type} — ${isFinite(it.duration)?fmt(it.duration):'نامشخص'}</div></div>
+      <div style="display:flex;gap:6px"><button class="small ghost open">بازکردن</button><button class="small danger remove">حذف</button></div>`;
+    el.addEventListener('click', (e)=>{
+      if(e.target.closest('.remove') || e.target.closest('.open')) return;
+      const playingThis = mediaEl && items[current] && items[current].id===it.id && !mediaEl.paused && !mediaEl.ended;
+      if(playingThis) mediaEl.pause();
+      else {
+        if(items[current] && items[current].id===it.id){ if(mediaEl) mediaEl.play().catch(()=>{}); }
+        else { setCurrent(idx); if(mediaEl){ const p = loadPositions()[it.id]; if(p && isFinite(mediaEl.duration) && p < mediaEl.duration - 0.5){ try{ mediaEl.currentTime = p; }catch(e){} } mediaEl.play().catch(()=>{}); } }
+      }
+    });
+    el.querySelector('.open').addEventListener('click', ev=>{ ev.stopPropagation(); setCurrent(idx); if(mediaEl) mediaEl.play().catch(()=>{}); });
+    el.querySelector('.remove').addEventListener('click', ev=>{ ev.stopPropagation(); removeItem(it.id); });
+    fileList.appendChild(el);
+  });
+  renderCueList();
+}
+
+/* ====== حذف ====== */
+function removeItem(id){
+  const idx = items.findIndex(x=>x.id===id); if(idx===-1) return;
+  const it = items.splice(idx,1)[0];
+  try{ URL.revokeObjectURL(it.url); if(it.subtitleBlobURL) URL.revokeObjectURL(it.subtitleBlobURL); }catch(e){}
+  // remove saved cues
+  const store = loadCuesStore(); if(store[id]){ delete store[id]; saveCuesStore(store); }
+  if(idx === current){
+    if(mediaEl){ try{ mediaEl.pause(); }catch(e){} mediaEl.remove(); mediaEl = null; }
+    subtitleOverlay.style.display='none'; playerPlaceholder.style.display='block'; progressWrap.style.display='none'; curTime.textContent='0:00'; totalTime.textContent='0:00'; current=-1;
+    const nextIdx = items.findIndex(i=>i.type==='audio' || i.type==='video');
+    if(nextIdx !== -1) setCurrent(nextIdx);
+  } else if(idx < current) current--;
+  renderList();
+}
+
+/* ====== انتخاب فایل و ایجاد عنصر رسانه ====== */
+function setCurrent(idx){
+  if(idx<0 || idx>=items.length) return;
+  current = idx;
+  const it = items[idx];
+  Array.from(fileList.children).forEach(ch=> ch.classList.toggle('active', ch.dataset.id === it.id));
+  if(mediaEl){ try{ mediaEl.pause(); }catch(e){} mediaEl.remove(); mediaEl=null; }
+  const prevImg = playerArea.querySelector('img'); if(prevImg) prevImg.remove();
+  subtitleOverlay.style.display='none'; subtitleOverlay.textContent='';
+  if(it.type === 'video'){
+    const v = document.createElement('video'); v.src = it.url; v.controls = true; v.preload='metadata'; v.style.maxHeight='360px';
+    setupMediaElement(v, it.id); playerPlaceholder.style.display='none'; playerArea.insertBefore(v, progressWrap); mediaEl = v; progressWrap.style.display='flex';
+    if(it.subtitleBlobURL) attachSubtitleBlob(mediaEl, it);
+  } else if(it.type === 'audio'){
+    const a = document.createElement('audio'); a.src = it.url; a.controls = true; a.preload='metadata';
+    setupMediaElement(a, it.id); playerPlaceholder.style.display='none'; playerArea.insertBefore(a, progressWrap); mediaEl = a; progressWrap.style.display='flex';
+    if(it.subtitleBlobURL) attachSubtitleBlob(mediaEl, it);
+  } else if(it.type === 'image'){
+    const img = document.createElement('img'); img.src = it.url; img.style.width='100%'; img.style.maxHeight='360px'; img.style.objectFit='contain';
+    playerPlaceholder.style.display='none'; playerArea.insertBefore(img, progressWrap); mediaEl = null; progressWrap.style.display='none';
+    totalTime.textContent='0:00'; curTime.textContent='0:00';
+  } else { playerPlaceholder.style.display='block'; progressWrap.style.display='none'; }
+  // load cues from store if exist (we keyed by item.id)
+  const store = loadCuesStore();
+  if(store[it.id]) it.cues = store[it.id];
+  renderList();
+  updateSubsButton();
+}
+
+/* ====== تنظیم رسانه ====== */
+function setupMediaElement(el, itemId){
+  el.addEventListener('loadedmetadata', ()=>{
+    const it = items.find(i=>i.id===itemId); if(it) it.duration = el.duration;
+    totalTime.textContent = isFinite(el.duration)?fmt(el.duration):'0:00';
+    const pos = loadPositions()[itemId];
+    if(pos && isFinite(el.duration) && pos < el.duration - 0.5){ try{ el.currentTime = pos; }catch(e){} }
+    seek.disabled = false; updateRangeBackground(seek, seek.value, 'var(--accent)');
+    // ensure cue sync when track available
+    attachCueSync(el, itemId);
+  });
+  let lastSaved = 0;
+  el.addEventListener('timeupdate', ()=>{
+    const cur = el.currentTime, dur = el.duration;
+    curTime.textContent = isFinite(cur)?fmt(cur):'0:00';
+    totalTime.textContent = isFinite(dur)?fmt(dur):'0:00';
+    if(isFinite(dur) && dur>0){ const pct = (cur/dur)*100; seek.value = pct; updateRangeBackground(seek,pct,'var(--accent)'); } else { seek.value = 0; updateRangeBackground(seek,0,'var(--accent)'); }
+    if(Math.abs(cur - lastSaved) >= 2){ lastSaved = cur; const p = loadPositions(); p[itemId] = cur; savePositions(p); }
+    // show inline cue if no native textTrack
+    displayActiveCueAt(cur);
+  });
+  el.addEventListener('seeked', ()=> { const p = loadPositions(); p[itemId] = el.currentTime; savePositions(p); displayActiveCueAt(el.currentTime); });
+  el.addEventListener('pause', ()=> { const p = loadPositions(); p[itemId] = el.currentTime; savePositions(p); playBtn.textContent='▶ Play'; playerStatus.textContent='مکث'; });
+  el.addEventListener('play', ()=> { playBtn.textContent='⏸ Pause'; playerStatus.textContent = 'در حال پخش: ' + (items[current] ? items[current].name : ''); });
+  el.addEventListener('ended', ()=> { const p = loadPositions(); if(p[itemId]){ delete p[itemId]; savePositions(p); } playerStatus.textContent = 'پایان'; });
+  el.volume = Number(volume.value)/100;
+}
+
+/* ====== seek و volume ====== */
+let isSeeking = false;
+seek.addEventListener('input', ()=>{
+  const pct = Number(seek.value);
+  if(mediaEl && isFinite(mediaEl.duration)){ const newTime = (pct/100)*mediaEl.duration; curTime.textContent = fmt(newTime); }
+  updateRangeBackground(seek, pct, 'var(--accent)');
+  isSeeking = true;
+});
+seek.addEventListener('change', ()=>{
+  if(!mediaEl || !isFinite(mediaEl.duration)){ isSeeking=false; return; }
+  const newTime = (Number(seek.value)/100)*mediaEl.duration;
+  try{ mediaEl.currentTime = newTime; }catch(e){}
+  const p = loadPositions(); p[items[current].id] = newTime; savePositions(p);
+  isSeeking = false;
+});
+volume.addEventListener('input', ()=>{ const v = Number(volume.value); volText.textContent = v + '%'; updateRangeBackground(volume, v, 'var(--accent-red)'); if(mediaEl) mediaEl.volume = v/100; });
+
+/* ====== کنترل‌ها ====== */
+playBtn.addEventListener('click', ()=> { if(mediaEl) mediaEl.play().catch(()=>{}); });
+pauseBtn.addEventListener('click', ()=> { if(mediaEl) mediaEl.pause(); });
+stopBtn.addEventListener('click', ()=> { if(mediaEl){ try{ mediaEl.pause(); mediaEl.currentTime = 0; }catch(e){} } });
+skipBackBtn.addEventListener('click', ()=> { if(mediaEl && isFinite(mediaEl.duration)) mediaEl.currentTime = Math.max(0, mediaEl.currentTime - 10); });
+skipForwardBtn.addEventListener('click', ()=> { if(mediaEl && isFinite(mediaEl.duration)) mediaEl.currentTime = Math.min(mediaEl.duration, mediaEl.currentTime + 10); });
+
+clearAllBtn.addEventListener('click', ()=>{ items.forEach(it=>{ try{ URL.revokeObjectURL(it.url); if(it.subtitleBlobURL) URL.revokeObjectURL(it.subtitleBlobURL); }catch(e){} }); items = []; current = -1; if(mediaEl){ try{ mediaEl.pause(); }catch(e){} mediaEl.remove(); mediaEl = null; } subtitleOverlay.style.display='none'; playerPlaceholder.style.display='block'; progressWrap.style.display='none'; curTime.textContent='0:00'; totalTime.textContent='0:00'; playerStatus.textContent='پاک‌سازی شد'; renderList(); });
+
+/* ====== ویرایشگر زیرنویس: افزودن cue از زمان فعلی ====== */
+addCueNow.addEventListener('click', ()=>{
+  if(current === -1) return alert('ابتدا یک فایل انتخاب کنید');
+  if(!mediaEl) return alert('فایلی برای ثبت زمان موجود نیست');
+  const start = mediaEl.currentTime;
+  // default end = start + 3s
+  const end = start + 3;
+  const text = cueText.value.trim();
+  if(!text) return alert('متن cue را وارد کن');
+  addCueToCurrent({start, end, text});
+});
+
+/* افزودن دستی cue با ورودی زمان */
+addCueManual.addEventListener('click', ()=>{
+  if(current === -1) return alert('ابتدا یک فایل انتخاب کنید');
+  const s = parseTimeInput(cueStart.value) || 0;
+  const e = parseTimeInput(cueEnd.value) || (s + 3);
+  const text = cueText.value.trim();
+  if(!text) return alert('متن cue را وارد کن');
+  if(!isFinite(s) || !isFinite(e) || e <= s) return alert('زمان نامعتبر است (end باید بزرگتر از start باشد)');
+  addCueToCurrent({start:s, end:e, text});
+});
+
+/* افزودن cue به آرایه و ذخیره */
+function addCueToCurrent(cue){
+  const it = items[current];
+  const id = Math.random().toString(36).slice(2,9);
+  const newCue = {id, start: Number(cue.start), end: Number(cue.end), text: cue.text};
+  it.cues.push(newCue);
+  // sort by start
+  it.cues.sort((a,b)=> a.start - b.start);
+  // persist
+  const store = loadCuesStore(); store[it.id] = it.cues; saveCuesStore(store);
+  // refresh UI and ensure subtitle sync
+  renderCueList();
+  attachCueSync(mediaEl, it.id);
+  cueText.value = '';
+}
+
+/* نمایش لیست cues و عملیات ویرایش/حذف */
+function renderCueList(){
+  cueList.innerHTML = '';
+  if(current === -1) return;
+  const it = items[current];
+  it.cues.forEach(c=>{
+    const el = document.createElement('div'); el.className='cue';
+    el.innerHTML = `<div class="meta"><div style="font-weight:700">${escapeHtml(c.text)}</div><div class="sub">${secondsToVttTimestamp(c.start)} → ${secondsToVttTimestamp(c.end)}</div></div>
+      <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
+        <div style="display:flex;gap:6px"><button class="small ghost jump">پرش</button><button class="small ghost edit">ویرایش</button></div>
+        <button class="small danger delete">حذف</button>
+      </div>`;
+    el.querySelector('.jump').addEventListener('click', ()=> { if(mediaEl) mediaEl.currentTime = c.start; });
+    el.querySelector('.delete').addEventListener('click', ()=> { it.cues = it.cues.filter(x=>x.id!==c.id); const store = loadCuesStore(); store[it.id]=it.cues; saveCuesStore(store); renderCueList(); });
+    el.querySelector('.edit').addEventListener('click', ()=> {
+      // populate editor for quick edit and remove old cue
+      cueText.value = c.text;
+      cueStart.value = formatInputTime(c.start);
+      cueEnd.value = formatInputTime(c.end);
+      it.cues = it.cues.filter(x=>x.id!==c.id);
+      const store = loadCuesStore(); store[it.id]=it.cues; saveCuesStore(store);
+      renderCueList();
+    });
+    cueList.appendChild(el);
+  });
+}
+
+/* نمایش cue فعال (در صورت نداشتن textTrack) */
+function displayActiveCueAt(time){
+  if(current === -1) return;
+  const it = items[current];
+  // if there's a native textTrack showing, skip manual overlay
+  if(it.textTrack && it.textTrack.mode === 'showing') return;
+  const found = it.cues.find(c => time >= c.start && time <= c.end);
+  if(found){
+    subtitleOverlay.style.display = 'block';
+    subtitleOverlay.textContent = found.text;
+  } else {
+    subtitleOverlay.style.display = 'none';
+    subtitleOverlay.textContent = '';
+  }
+}
+
+/* attach cue sync (no native track creation from internal cues) */
+/* also attach VTT track if wanted: we'll not create native track from cues to keep editor authoritative */
+
+/* ====== صادرات VTT برای cues فعلی ====== */
+exportVTT.addEventListener('click', ()=>{
+  if(current === -1) return alert('ابتدا یک فایل انتخاب کنید');
+  const it = items[current];
+  if(!it.cues || !it.cues.length) return alert('زیرنویس خالی است');
+  let vtt = 'WEBVTT\n\n';
+  it.cues.forEach(c=>{
+    vtt += secondsToVttTimestamp(c.start) + ' --> ' + secondsToVttTimestamp(c.end) + '\n' + c.text + '\n\n';
+  });
+  const blob = new Blob([vtt], {type:'text/vtt'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = (items[current].name || 'subtitle') + '.vtt';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=> URL.revokeObjectURL(url), 5000);
+});
+
+/* ====== import external subtitle file (keeps previous behavior) ====== */
+uploadSubLabel.addEventListener('click', ()=> subFileInput.click());
+subFileInput.addEventListener('change', async (e)=>{
+  if(current === -1) return alert('ابتدا یک فایل رسانه‌ای انتخاب کنید');
+  const f = e.target.files && e.target.files[0]; if(!f) return;
+  const txt = await f.text();
+  const name = f.name.toLowerCase();
+  let vtt = null;
+  if(name.endsWith('.vtt')) vtt = ensureVTTHeader(txt);
+  else if(name.endsWith('.srt')) vtt = srtToVtt(txt);
+  else if(name.endsWith('.ass')||name.endsWith('.ssa')) vtt = assToVtt(txt);
+  else vtt = ensureVTTHeader(txt);
+  if(!vtt) return alert('خطا در تبدیل زیرنویس');
+  // convert VTT cues to internal cues array
+  const parsed = parseVttToCues(vtt);
+  const it = items[current];
+  it.cues = parsed;
+  // persist
+  const store = loadCuesStore(); store[it.id] = it.cues; saveCuesStore(store);
+  renderCueList();
+  subFileInput.value = '';
+});
+
+/* small converters/parsers reused from earlier implementations */
+function ensureVTTHeader(txt){ if(txt.trim().startsWith('WEBVTT')) return txt; return 'WEBVTT\n\n' + txt; }
+function srtToVtt(srt){ try{ srt = srt.replace(/\r\n?/g,'\n'); const parts = srt.split(/\n{2,}/); let vtt = 'WEBVTT\n\n'; for(const p of parts){ const lines = p.split('\n').filter(Boolean); if(lines.length>=2){ let timeLineIndex = 0; if(lines[0].match(/^\d+$/)) timeLineIndex = 1; const timeLine = lines[timeLineIndex].replace(/,/g, '.'); const text = lines.slice(timeLineIndex+1).join('\n'); vtt += timeLine + '\n' + text + '\n\n'; } } return vtt; }catch(e){ return null; } }
+function assToVtt(ass){ try{ ass = ass.replace(/\r\n?/g,'\n'); const lines = ass.split('\n'); let inEvents=false; let formatParts=null; const dialogues=[]; for(const ln of lines){ const l=ln.trim(); if(!l) continue; if(l.startsWith('[Events]')){ inEvents=true; continue; } if(!inEvents) continue; if(l.startsWith('Format:')){ formatParts = l.slice(7).split(',').map(x=>x.trim().toLowerCase()); continue; } if(l.startsWith('Dialogue:')){ const rest = l.slice(9); if(formatParts){ const parts = rest.split(',', formatParts.length); const map = {}; for(let i=0;i<formatParts.length;i++) map[formatParts[i]] = parts[i] || ''; const start = map['start']; const end = map['end']; const text = map['text'] || ''; const s = assTimeToSeconds(start); const e = assTimeToSeconds(end); if(isFinite(s) && isFinite(e)) dialogues.push({start:s,end:e,text:assStripTags(text)}); } } } let vtt='WEBVTT\n\n'; dialogues.forEach(d=>{ vtt += secondsToVttTimestamp(d.start) + ' --> ' + secondsToVttTimestamp(d.end) + '\n' + d.text + '\n\n'; }); return vtt; }catch(e){ return null; } }
+function assTimeToSeconds(t){ const m = (t||'').trim().split(':'); if(m.length!==3) return NaN; const h = Number(m[0]), mm = Number(m[1]); const secPart = Number(m[2].replace(',', '.')); return h*3600 + mm*60 + secPart; }
+function assStripTags(str){ return String(str).replace(/\{[^}]*\}/g,'').replace(/\\N/g,'\n').replace(/\\n/g,'\n'); }
+
+/* parse VTT into internal cues */
+function parseVttToCues(vtt){
+  try{
+    vtt = vtt.replace(/\r\n?/g,'\n');
+    // remove header
+    vtt = vtt.replace(/^WEBVTT.*\n?/i, '');
+    const blocks = vtt.split(/\n{2,}/).map(b=>b.trim()).filter(Boolean);
+    const cues = [];
+    for(const b of blocks){
+      const lines = b.split('\n').filter(Boolean);
+      if(lines.length >= 2){
+        // find time line
+        const timeLineIndex = lines.findIndex(l=>l.includes('-->'));
+        if(timeLineIndex === -1) continue;
+        const times = lines[timeLineIndex].split('-->').map(s=>s.trim());
+        const start = parseVttTime(times[0]); const end = parseVttTime(times[1]);
+        const text = lines.slice(timeLineIndex+1).join('\n');
+        if(isFinite(start) && isFinite(end)) cues.push({id: Math.random().toString(36).slice(2,9), start, end, text});
+      }
+    }
+    cues.sort((a,b)=>a.start-b.start);
+    return cues;
+  }catch(e){ return []; }
+}
+function parseVttTime(t){
+  // formats: hh:mm:ss.mmm or mm:ss.mmm
+  try{
+    const parts = t.split(':').map(x=>x.trim());
+    if(parts.length===3){ const h=Number(parts[0]), m=Number(parts[1]); const s=Number(parts[2].replace(',','.')); return h*3600 + m*60 + s; }
+    if(parts.length===2){ const m=Number(parts[0]); const s=Number(parts[1].replace(',','.')); return m*60 + s; }
+    return Number(t);
+  }catch(e){ return NaN; }
+}
+
+/* helper: attach native textTrack if subtitleBlobURL exists (kept for compatibility) */
+function attachSubtitleBlob(media, item){
+  try{ Array.from(media.querySelectorAll('track[data-custom="1"]')).forEach(t=>t.remove()); }catch(e){}
+  if(!item.subtitleBlobURL) return;
+  const trackEl = document.createElement('track'); trackEl.kind='subtitles'; trackEl.label='sub'; trackEl.src = item.subtitleBlobURL; trackEl.srclang='fa'; trackEl.setAttribute('data-custom','1'); trackEl.mode='hidden'; media.appendChild(trackEl);
+  trackEl.addEventListener('load', ()=>{ const tt = trackEl.track; item.textTrack = tt; tt.mode = item.subtitleMode === 'showing' ? 'showing' : 'hidden'; tt.addEventListener('cuechange', ()=>{ if(tt.activeCues && tt.activeCues.length){ subtitleOverlay.style.display='block'; subtitleOverlay.textContent = tt.activeCues[0].text; } else { subtitleOverlay.textContent = ''; } }); }, {once:true});
+  setTimeout(()=>{ try{ const tt = trackEl.track; if(tt){ item.textTrack = tt; tt.mode = item.subtitleMode === 'showing' ? 'showing' : 'hidden'; tt.addEventListener('cuechange', ()=>{ if(tt.activeCues && tt.activeCues.length){ subtitleOverlay.style.display='block'; subtitleOverlay.textContent = tt.activeCues[0].text; } else subtitleOverlay.textContent=''; }); } }catch(e){} }, 250);
+}
+
+/* show active cue when using internal cues: handled in timeupdate -> displayActiveCueAt */
+
+/* ====== update subs button text ====== */
+function updateSubsButton(){ if(current === -1) return; const it = items[current]; /* no change here, editor authoritative */ }
+
+/* ====== utility: formatting for manual edit inputs ====== */
+function formatInputTime(s){
+  if(!isFinite(s)) return '';
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = Math.floor(s%60);
+  if(h>0) return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  return `${m}:${String(sec).padStart(2,'0')}`;
+}
+
+/* ====== init visuals ====== */
+seek.disabled = true; progressWrap.style.display = 'none';
+updateRangeBackground(seek,0,'var(--accent)'); updateRangeBackground(volume, Number(volume.value),'var(--accent-red)');
+curTime.textContent='0:00'; totalTime.textContent='0:00';
+renderList();
+
+/* ====== keyboard space to toggle ====== */
+document.addEventListener('keydown', e=>{ if(e.code === 'Space' && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)){ e.preventDefault(); if(mediaEl){ if(mediaEl.paused) mediaEl.play().catch(()=>{}); else mediaEl.pause(); } } });
+
+/* ====== helpers used earlier ====== */
+function escapeHtml(s){ return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'); }
+</script>
+</body>
+</html>
